@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+
+  <head>
+    <meta charset="utf-8">
+
+    <title>なぜErlangにしたのか</title>
+
+    <meta name="description" content="A framework for easily creating beautiful presentations using HTML">
+    <meta name="author" content="Hakim El Hattab">
+
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+    <link rel="stylesheet" href="css/reveal.min.css">
+    <link rel="stylesheet" href="css/theme/default.css" id="theme">
+
+    <!-- For syntax highlighting -->
+    <link rel="stylesheet" href="lib/css/zenburn.css">
+
+    <!-- If the query includes 'print-pdf', include the PDF print sheet -->
+    <script>
+      if( window.location.search.match( /print-pdf/gi ) ) {
+      var link = document.createElement( 'link' );
+      link.rel = 'stylesheet';
+      link.type = 'text/css';
+      link.href = 'css/print/pdf.css';
+      document.getElementsByTagName( 'head' )[0].appendChild( link );
+      }
+    </script>
+
+    <!--[if lt IE 9]>
+	<script src="lib/js/html5shiv.js"></script>
+	<![endif]-->
+  </head>
+
+  <body>
+    <div class="reveal">
+      <div class="slides">
+        <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+          <script type="text/template">
+            ### なぜErlangにしたのか
+
+            <br />
+
+            太田 健@ドワンゴ
+
+            ---
+
+            ### 自己紹介
+
+            - 2012年中途入社
+              - github: https://github.com/sile
+            - 仕事ではモバイル向けの生放送配信システムを担当
+              - 現在稼働しているものは PHP と C/C++
+              - 徐々に Erlang + C/C++(最小限)構成に移行中
+
+            ---
+
+            ### 目次
+
+            1. 何をErlangにしたのか
+            2. Erlangをどのように使っているのか
+            3. なぜErlangにしたのか
+
+            ---
+
+            ## 1. 何をErlangにしたのか
+
+            ---
+
+            ### システムの担当範囲
+
+            ![system](tech-system.png)
+            
+            ---
+
+            ### システムの構成
+
+            ![system-detail](tech-system-detail.png)
+
+            ---
+
+            ### Erlangの担当範囲は？
+            - ほぼ全部
+              - コーデック変換部分はC/C++
+                - 単体処理速度が命なので今後もErlangになることはない
+              - 残りは全てErlangで実装
+                - 当初はRTMPサーバおよびフォーマット変換もC++だった
+                - 試験的にErlangで実装してみたところ良好な成果がでたので置き換え
+
+            ---
+
+            ## 2. Erlangをどのようにつかっているか
+
+            ---
+            
+            ### バージョン
+
+            - R16B03-2を使用
+            - R17を使いたいが安定版が出てから検討
+              - mapsに期待
+
+            ---
+
+            ### 開発方法は？
+            - ビルドツール/依存関係管理
+              - rebar
+            - 開発ツール等
+              - reloader
+                - Erlangシェルを立ち上げっぱなしにして、ソース修正、コンパイル、自動ロード、の繰り返し
+              - テスト系: xref, dialyzer, eunit, meck, ct
+              - ドキュメント系: spec記述, edoc(edown)
+              - その他社外ツール等
+                - cowboy(HTTPサーバ), lager(ロガー)
+
+            ---
+
+            ### デプロイ方法は？
+            - Erlangのrelease機能を使用してリリースパッケージを作成
+              - 実際には rebar の create-node や generate系 コマンド経由で生成
+                - 必要に応じていろいろと手を加えてはいる
+            - 最終的にrpmにパッケージにまとめられ、インストールおよび更新はrpmコマンド一発で可能
+              - 更新時はホットデプロイが行われる
+            - まだまだ試行錯誤中
+
+            ---
+
+            ### どの程度の開発規模？
+            - 開発者は4人
+            - 現時点でコード行数は4万行前後
+              - アプリケーションコードと(自社)ライブラリコードが半々くらい
+              - 汎用部分は極力ライブラリ化
+                - 標準ライブラリを補うための基礎ライブラリ
+                - RTMPサーバ/クライアント
+                - 映像/動画フォーマット処理
+                - 設定ファイル管理サーバ
+                - クラスタリソース管理サーバ
+                - etc
+              - PHP版に比べシステム全体のコード量は半分くらいに減少
+            
+            ---
+
+            ## 3. なぜErlangにしたのか
+            
+            ---
+
+            ### PHP版の問題点は？
+            - システムが(過度に)複雑になりつつあった
+              - メンテナンスや拡張が困難
+            - 性能が伸びない
+              - 単体性能
+              - スケールアウト
+            
+            ---
+
+            ### PHP版は複雑？(1) - HLS配信部分の図
+
+            ![hls-php](tech3-hls-php.png)
+
+            ---
+
+            ### PHP版は複雑？(2)
+            - PHPの表現力不足を補うためのミドルウェアやコンポーネントが多い
+              - Apache, Cron, Redis, ファイルシステム, ファイル削除サーバ, RTMPサーバ
+            - データ操作タイミングや整合性維持、設定の同期等にかなり気を遣う
+            - コンポーネント同士のコミュニケーションコストが馬鹿にならない
+              - ex. 個別に管理用APIが必要(例えばHTTP経由やファイル経由)、外部形式へのエンコード/デコード、エラーハンドリング
+              - コード量的にも性能的にも
+
+            ---
+
+            ### Erlangなら？(1)
+            - 単体で(ほぼ)全てまかなえる
+            - Erlangのプロセスとメッセージパッシング、リンクで大体の問題は解決
+              - プロセス
+                - データ保持, 実行タイミングの制御, 排他/整合性保障
+              - メッセージパッシング
+                - コンポーネント(プロセス)間の容易/高効率/高信頼な標準化された通信手段
+              - リンク
+                - 関連コンポーネントやリソースの削除や異常終了の確実な検出
+              - 単純だが、これらの要素が実用レベルで(かつ簡単に)使用可能な言語/環境は意外と少ない印象
+                - 独立したサーバ(プロセス)同士を、ほぼ自由に組み合わせられるようになる
+            
+            ---
+
+            ### Erlangなら？(2) - HLS配信部分の図
+
+            ![hls-erlang](tech3-hls-erlang.png)
+
+            Redis,ファイルシステム,Cron,削除サーバが不要となった  
+            HLS関連データおよび処理は単一プロセスに局所化
+
+            ---
+
+            ### Erlangなら？(3) - HLSプロセスコード
+
+            ```erlang
+            -module(hls_server).
+
+            -export([start_link/1, init/1, loop/1]).
+
+            start_link(HlsViewData) ->
+              %% HLSサーバ起動
+              spawn_link(fun ?MODULE:init/1, [HlsViewData]).
+            ```
+
+            ---
+
+            ### HLSプロセスコード(続き)
+            ```erlang
+            init(HlsViewData) ->
+              %% プロセス初期化関数
+
+              %% 有効期限設定 (実際には期限延長処理も必要)
+              _ = erlang:send_after(?HLS_EXPIRED_TIME, self(), expired),
+
+              %% バックエンドに変換開始を依頼
+              case start_transcode_link(HlsViewData) of
+                {error, Reason}  -> exit(Reason);
+                {ok, BackendPid} ->
+                  loop({BackendPid, queue:new(), HlsViewData})
+              end.
+            ```
+            
+            ---
+
+            ### HLSプロセスコード(続き)
+            ```erlang
+            loop({BackendPid, HlsBuffer, HlsViewData}) ->
+              receive
+                {rtmp_data, RtmpData} ->
+                  %% RTMPサーバからデータが届いた
+                  HlsData = rtmp_to_hls(RtmpData),
+                  HlsBuffer2 = queue:in(HlsData, HlsBuffer),
+                  HlsBuffer3 =
+                    case queue:len(HlsBuffer2) > ?MAX_BUFFER_SIZE of
+                      true  -> element(2, queue:out(HlsBuffer2));
+                      false -> HlsBuffer2
+                    end,
+                  loop({BackendPid, HlsBuffer3, HlsViewData});
+            ```
+
+            ---
+
+            ### HLSプロセスコード(続き)
+            ```erlang
+                expired ->
+                  %% 有効期限が切れた
+                  ok = stop_transcode(BackendPid),  % バックエンド停止
+                  exit(normal);
+                {get_hls_data, From} ->
+                  %% WebAPIからのHLSデータ取得リクエスト
+                  case queue:is_empty(HlsBuffer) of
+                    true  -> From ! {error, empty};
+                    false -> From ! {ok, queue:head(HlsBuffer)}
+                  end,
+                  loop({BackendPid, HlsBuffer, HlsViewData})
+              end.
+            ```
+            これは疑似コードレベルだが、実際のコードもこの発展系
+
+            ---
+
+            ### Erlangなら？(4)
+            - Erlangのアーキテクチャは実現したいシステムの他の部分との相性も良かった
+            - RTMPサーバはErlangで実装可能
+              - TCPサーバを実装するのはむしろ得意分野（？）
+              - C++版と同等以上の性能
+              - 安定性と拡張性は格段に向上
+            - コンテナフォーマット変換(rtmp => hls)
+              - バイナリのパターンマッチは凄く便利
+            - 外部プロセス管理
+              - 基本はerlang:open_port/2
+              - 確実なリンクを貼るために軽いラップコマンドを作成
+                - https://github.com/sile/safeexec
+              - Erlangプロセス／外部プロセスのどちらが死んでもリーク無し
+
+            ---
+
+            ### 単体性能はどう変わったか？
+            - 簡単なベンチマークをとってみました
+              - 環境: Scientific Linux 6.5 (VM)
+              - CPU: Corei7-4770 @ 3.40GHz x 4コア
+              - メモリ: 3GB
+              - 条件: 一人の配信者が500kbpsのストリームを配信、視聴者は400人
+            - 結果(CPU使用率):
+              - PHP版: 74%
+              - Erlang版: 9%
+            - 性能周りの詳しい話は、また別の機会にでも...
+
+            ---
+
+            ### スケールアウトの仕組みは？
+            - 基本的にはマシンを単純に追加すれば良い
+              - ただし、どのストリームをどのサーバが担当しているかを把握する手段が必要
+            - 汎用的なリソース管理サーバをライブラリとして開発
+              - リソースの探索/生成、キャパシティ/優先度管理、etc
+              - 今回のケースでは、リソース=生放送ストリーム
+            - 土台は分散Erlangのクラスタ機能
+            - 現時点では、pg2モジュールとコンシステントハッシュ法を組み合わせてリソース探索を実現
+            - 中規模程度(分散Erlangの限界内)のクラスタなら上手くスケールする想定
+
+            ---
+
+            ### なぜErlangにしたのか？
+            - 一言でいえば、実現したいシステムを一番素直に表現できそうな言語だったから
+              - サーバ(プロセス)を自由に組み合わせ可能、というだけで設計の自由度がかなり高まる
+              - ストリーム配信システムの論理モデルを、ほぼそのまま実装に反映可能
+              - 性能も十分及第点
+            - 現時点では(いろいろと苦労しつつも)おおむね満足
+
+            ---
+            
+            ## ご清聴ありがとうございました
+
+          </script>
+        </section>
+      </div>
+    </div>
+
+    <script src="lib/js/head.min.js"></script>
+    <script src="js/reveal.min.js"></script>
+
+    <script>
+
+      // Full list of configuration options available here:
+      // https://github.com/hakimel/reveal.js#configuration
+      Reveal.initialize({
+      controls: true,
+      progress: true,
+      history: true,
+      center: true,
+
+      theme: Reveal.getQueryHash().theme, // available themes are in /css/theme
+      transition: Reveal.getQueryHash().transition || 'default', // default/cube/page/concave/zoom/linear/fade/none
+
+      // Parallax scrolling
+      // parallaxBackgroundImage: 'https://s3.amazonaws.com/hakim-static/reveal-js/reveal-parallax-1.jpg',
+      // parallaxBackgroundSize: '2100px 900px',
+
+      // Optional libraries used to extend on reveal.js
+      dependencies: [
+      { src: 'lib/js/classList.js', condition: function() { return !document.body.classList; } },
+      { src: 'plugin/markdown/marked.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+      { src: 'plugin/markdown/markdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+      { src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } },
+      { src: 'plugin/zoom-js/zoom.js', async: true, condition: function() { return !!document.body.classList; } },
+      { src: 'plugin/notes/notes.js', async: true, condition: function() { return !!document.body.classList; } }
+      ]
+      });
+
+    </script>
+
+  </body>
+</html>

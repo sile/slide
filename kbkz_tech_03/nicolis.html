@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+
+	<head>
+		<meta charset="utf-8">
+
+		<title>ニコリスをPHPからErlangに書き換えた話</title>
+
+		<meta name="description" content="A framework for easily creating beautiful presentations using HTML">
+		<meta name="author" content="Hakim El Hattab">
+
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<link rel="stylesheet" href="css/reveal.min.css">
+		<link rel="stylesheet" href="css/theme/default.css" id="theme">
+
+		<!-- For syntax highlighting -->
+		<link rel="stylesheet" href="lib/css/zenburn.css">
+    <link rel="stylesheet" href="css/theme/simple.css">
+
+		<!-- If the query includes 'print-pdf', use the PDF print sheet -->
+		<script>
+			document.write( '<link rel="stylesheet" href="css/print/' + ( window.location.search.match( /print-pdf/gi ) ? 'pdf' : 'paper' ) + '.css" type="text/css" media="print">' );
+		</script>
+
+		<!--[if lt IE 9]>
+		<script src="lib/js/html5shiv.js"></script>
+		<![endif]-->
+	</head>
+
+	<body>
+
+		<div class="reveal">
+
+			<!-- Any section element inside of this container is displayed as a slide -->
+			<div class="slides">
+				<section>
+					<h3>nicolisをPHPからErlangに書き換えた話</h3>
+					<p>
+						第四企画開発部 第五セクション
+            <center>太田 健</center>
+					</p>
+				</section>
+
+  			<section data-markdown>
+	  			<script type="text/template">
+### 自己紹介
+
+- 2012年中途入社
+- CommonLisp, Erlang, C++
+- github: https://github.com/sile
+- 入社以来ずっとニコリスを担当
+		  		</script>
+        </section>
+        <section data-markdown>
+					<script type="text/template">
+### ニコリス
+
+- ニコニコ生放送の変換／配信システム
+  - live用とtimeshift用がある
+- 配信対象はPC(Flash)を除いた各種デバイス
+  - オリジナルのRTMPストリームをモバイル端末等で視聴可能な形式に変換して配信するのがニコリスの仕事
+- 初期バージョンは PHP と C++
+- 現在 Erlang で置き換え中
+          </script>
+        </section>
+        <section data-markdown>
+					<script type="text/template">
+### ニコリスの概要図 (live配信)
+
+![nicolis](nicolis.png)
+
+今回の発表の対象は live の フロントエンド
+          </script>
+        </section>
+  			<section data-markdown>
+     			<script type="text/template">
+###　PHP版フロントの構成
+
+![front](front.png)
+
+- RTMPサーバおよびバックエンドの管理APIはHTTP
+          </script>
+        </section>
+  			<section data-markdown>
+     			<script type="text/template">
+### PHP版フロントの問題点(1)
+
+- 実現したいこと自体はシンプル
+  - RTMPをHLSに変換して、ユーザに配信する
+- その割にはコンポーネントが多く複雑
+  - Apache, Redis, ファイルシステム, Cron, 各種C++サーバ
+  - 整合性の維持(保証)にかなり気を使う
+    - 各種設定の同期が必要 (設定箇所が分散)
+    - Redisに対する各種操作のアトミック性保証が必要
+    - HLSファイルの書き込み／読み込み／削除のタイミングの調整
+          </script>
+        </section>
+  			<section data-markdown>
+     			<script type="text/template">
+### PHP版フロントの問題点(2)
+
+- ソースコードの少なくない部分が各種コンポーネント間の通信や調整に費やされている
+- 役割分担やモジュールの切り分け方が各コンポーネントによって制限(分断)されてしまう
+  - ex. HLSファイルの生成と配信、削除が別モジュールに分離されている
+- データ操作のトリガーが不自然 (非自立的)
+  - HTTPリクエスト or Cron実行、のタイミングのみ
+  - 負荷的な理由によりCron実行の頻度をあげるのには限界がある
+  - どちらかのタイミングに合わせて不自然にタスクを割り振ることになりがち
+    - ex. バックエンドの変換状態チェックを、HTTPリクエストのタイミングで(他の処理のついでに)行っている
+          </script>
+        </section>
+  			<section data-markdown>
+     			<script type="text/template">
+### PHP版フロントの問題点(3)
+
+- 性能が伸びない
+  - 同接1000ユーザくらいで頭打ちが始まる
+  - PHPが絶対的に重い(?), Redisが不安定(?)
+  - 各コンポーネント間のコミュニケーションコストも気になる
+- スケールアウトの仕組みを組み込むのが面倒
+  - 変換リソースには限りがあるので、単純に横に並べるだけでは駄目
+  - マシン間の動的な追加／削除にどう対応するか？
+- etc
+- 一言でいえば、やりたいことに対して不必要に不自然なシステム(構成,設計)になっている気がする
+          </script>
+        </section>
+				<section data-markdown>
+   				<script type="text/template">
+### Erlang
+
+- 以降で説明するのは今回の発表に関係のある部分だけ
+  - 詳しいことはWikipediaやErlang本を参照
+  - 特徴列挙: OSS, VM, 動的型, 関数型, 単一代入, パターンマッチ, 軽量プロセス, メッセージパッシング, 並列分散, 耐障害性, ソフトリアルタイム
+- ステートフルなサーバを自然に記述できる言語(個人の感想)
+- プロセス多用
+- イメージ的にはプログラミング言語単体というよりも、その実行環境を含むミニOSといった感じ (Unix + C的な)
+  - ErlangVM(≒ OS)上に、多数のプロセス(サーバ)を起動して、一つのシステムを実現する
+          </script>
+        </section>
+				<section data-markdown>
+   				<script type="text/template">
+### Erlangのプロセス
+
+- 大事
+- ErlangVM上で動く独自の軽量プロセス
+  - Erlangプログラムの基本的な構成要素の一つ
+    - OOPのオブジェクトに近い位置づけ(あえていえば)
+  - 一つ辺り数KBのメモリを消費
+  - 生成はマイクロ秒オーダー
+  - プロセス間の通信手段はメッセージパッシングのみ
+  - 一つのシステムで普通に数万プロセスとかを同時に起動する
+    - 各プロセスの実行スケジューリングはErlangVMがよしなにしてくれる
+          </script>
+        </section>
+				<section data-markdown>
+   				<script type="text/template">
+### Erlangのプロセス操作プリミティブ
+
+- プロセスの生成(spawn)、 メッセージ送信(!)、 メッセージ受信(receive)、双方向監視(link)
+- これらの操作は別ノード(マシン)のプロセスに対しても実行可能
+```erlang
+%% プロセス操作の例
+> Child = spawn(fun () ->  % プロセス生成 (Erlangは大文字で始まると変数)
+                  receive  % メッセージ受信
+                    {hello, Parent} -> Parent ! world  % メッセージ送信
+                  end
+                end).
+> link(Child).  % Childが死んだら自分も死ぬように設定
+> Child ! {hello, self()}.
+> receive
+    world -> ok
+  end.
+```
+          </script>
+        </section>
+				<section data-markdown>
+   				<script type="text/template">
+### Erlangプロセスの利点(1)
+
+- 性能を気にせず好きな数のプロセスを起動できる
+- プロセスは自らのステートを有し、その操作タイミングを自立的に制御可能
+  - OOPの情報隠蔽 + α
+  - ニコリスの視聴セッションの例をあげれば、
+    - セッション関連データおよびその操作が専用のプロセス内部に閉じられる(Redis不要)
+    - セッションの有効期限チェックや回収もプロセス単体で完結する(Cron不要)
+          </script>
+        </section>
+				<section data-markdown>
+   				<script type="text/template">
+### Erlangプロセスの利点(2)
+
+- 自立性を有する各コンポーネントをErlangVM内部の独立したサーバプロセスとして実装可能
+  - PHP版とは異なり、任意の単位で各(サーバ)コンポーネントが分離可能
+  - あらかじめ提供されているプロセス間通信や死活監視の方法は、十分に使いやすく高効率 (独自インターフェース不要)
+- Erlangが提供しているのは、サーバ(プロセス)を実装するための基本要素
+  - ただそれだけで、(複数のサーバが複合したようなシステムの)設計の自由度が大分高まる
+          </script>
+        </section>
+				<section data-markdown>
+   				<script type="text/template">
+###　Erlang版ニコリス
+- では、Erlangでニコリスを実装するとどうなるか？
+- 今回は、以下の三つのサブシステムに分割して説明
+  - HLSサーバ
+  - 視聴セッション管理
+  - リソース(視聴枠)管理 (クラスタサーバ)
+- 説明用にいろいろと簡略化はされている
+          </script>
+        </section>
+				<section data-markdown>
+   				<script type="text/template">
+###　Erlang版: HLSサーバ
+
+![hls](hls.png)
+
+- ファイル削除デーモン、ファイルシステム、Redis、Cron は不要となった
+          </script>
+        </section>
+				<section data-markdown>
+   				<script type="text/template">
+###　Erlang版: 視聴セッション管理
+
+![session](session.png)
+
+- 一つの視聴ユーザに付き一プロセスを使用
+- Redis, Cronは不要となった
+          </script>
+        </section>
+				<section data-markdown>
+   				<script type="text/template">
+###　Erlang版: リソース(視聴枠)管理
+
+![resource](resource.png)
+
+- ConsistentHashベースの汎用的なリソース割当クラスタサーバ
+- マシン間通信も通常のメッセージパッシングで実現可能
+- ここでもRedis等は使用せず
+          </script>
+        </section>
+				<section data-markdown>
+   				<script type="text/template">
+###　Erlang版ニコリスの全体図
+
+![system](system.png)
+
+- 三つの独立したサブシステムの組み合わせ + WebUI
+- HTTPサーバを含めて、フロントはErlangVM上で完結
+          </script>
+        </section>
+				<section data-markdown>
+   				<script type="text/template">
+### Erlangにして何が良かったか
+
+- ニコリスシステムの論理的なモデルを、比較的素直に実装(システム設計)に反映することができるようになった
+  - 各コンポーネント間でのコミュニケーションコストは減り、独立性は高まった
+- 作成した各サーバコンポーネントの他への流用が可能となった(ライブラリ化)
+  - ex. RTMPサーバ, クラスタリソース管理サーバ
+- ミドルウェアが減ったので構築/運用が楽
+- 単体性能も向上
+  - まだ様子見中だが、視聴者が多い番組の配信では、一桁程度の性能改善が見込めそう(期待)
+          </script>
+        </section>
+				<section data-markdown>
+   				<script type="text/template">
+###　最後に
+
+- Erlangの悪い点もいろいろある
+  - XXXがない！ (静的型, オブジェクト指向, モナド, etc)
+  - 通常の逐次処理は書きやすくはない
+  - 結構基本的なライブラリがなかったりする
+  - 重い計算処理には向かない
+  - 単一代入の関数型 + 並列処理が基本、はそれなりの習熟期間を要する
+  - 運用に耐えうるシステムの構築方法を確立するまでが一筋縄では行かなかった (無停止更新はまだ恐い...)
+- ただそれでも、今のところニコリスを実装するためには一番適した言語かと思うので、しばらくはErlangでいろいろ試してみます
+          </script>
+        </section>
+			</div>
+		</div>
+
+		<script src="lib/js/head.min.js"></script>
+		<script src="js/reveal.min.js"></script>
+
+		<script>
+
+			// Full list of configuration options available here:
+			// https://github.com/hakimel/reveal.js#configuration
+			Reveal.initialize({
+				controls: true,
+				progress: true,
+				history: true,
+				center: true,
+
+				theme: Reveal.getQueryHash().theme, // available themes are in /css/theme
+				transition: Reveal.getQueryHash().transition || 'default', // default/cube/page/concave/zoom/linear/fade/none
+
+				// Parallax scrolling
+				// parallaxBackgroundImage: 'https://s3.amazonaws.com/hakim-static/reveal-js/reveal-parallax-1.jpg',
+				// parallaxBackgroundSize: '2100px 900px',
+
+				// Optional libraries used to extend on reveal.js
+				dependencies: [
+					{ src: 'lib/js/classList.js', condition: function() { return !document.body.classList; } },
+					{ src: 'plugin/markdown/marked.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+					{ src: 'plugin/markdown/markdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+					{ src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } },
+					{ src: 'plugin/zoom-js/zoom.js', async: true, condition: function() { return !!document.body.classList; } },
+					{ src: 'plugin/notes/notes.js', async: true, condition: function() { return !!document.body.classList; } }
+				]
+			});
+
+		</script>
+
+	</body>
+</html>

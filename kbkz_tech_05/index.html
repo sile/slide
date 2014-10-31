@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+
+  <head>
+    <meta charset="utf-8">
+
+    <title>ドワンゴでのホットデプロイ事例</title>
+
+    <meta name="description" content="A framework for easily creating beautiful presentations using HTML">
+    <meta name="author" content="Hakim El Hattab">
+
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+    <link rel="stylesheet" href="css/reveal.min.css">
+    <link rel="stylesheet" href="css/theme/default.css" id="theme">
+
+    <!-- For syntax highlighting -->
+    <link rel="stylesheet" href="lib/css/zenburn.css">
+
+    <!-- If the query includes 'print-pdf', include the PDF print sheet -->
+    <script>
+      if( window.location.search.match( /print-pdf/gi ) ) {
+      var link = document.createElement( 'link' );
+      link.rel = 'stylesheet';
+      link.type = 'text/css';
+      link.href = 'css/print/pdf.css';
+      document.getElementsByTagName( 'head' )[0].appendChild( link );
+      }
+    </script>
+
+    <!--[if lt IE 9]>
+	<script src="lib/js/html5shiv.js"></script>
+	<![endif]-->
+  </head>
+
+  <body>
+    <div class="reveal">
+      <div class="slides">
+        <section data-markdown data-separator="^\n---$" data-vertical="^\n>>>$">
+          <script type="text/template">
+            ### ドワンゴでのホットデプロイ事例
+
+            <br />
+
+            太田 健@ドワンゴ
+
+            ---
+
+            目次
+            ----
+
+            1. 自己紹介＆システム紹介
+            2. Erlang/OTPでのホットデプロイ
+            3. 実際のデプロイの流れ
+            4. 各種問題とそれへの対処
+            5. まとめ
+
+            ---
+
+            自己紹介
+            --------
+
+            <br />
+
+            - ドワンゴ三年目
+            - github: https://github.com/sile
+            - ここ一年半くらいはほとんどErlangばかり書いている
+            - 希望分類: アルゴリズム・データ構造プログラマ
+
+            ---
+
+            システム紹介
+            ------------
+
+            - 主にニコニコ生放送の非PCデバイスへの配信を担当
+              - 前回の発表資料が詳しい <small>(後日アップします...)</small>
+<br /><br />
+            - サーバ台数は合計で50〜100台程度
+            - サーバ間の通信にはErlang/OTPのクラスタ機能を利用
+              - 映像・音声ストリームのような巨大データは別枠
+<br /><br />
+            - 運用期間は半年を過ぎたくらい
+            - 運用開始時からホットデプロイを採用
+              - マシン自体のメンテナンス等を除けば、基本的に常時稼働
+              - 今のところはデプロイ周りで大きな問題は起こっていない
+
+            ---
+
+            2. Erlang/OTPでのホットデプロイ
+            -------------------------------
+
+            ---
+
+            ホットデプロイ
+            -------------
+
+            - ホットデプロイ
+              - ErlangVMを停止せずにシステムを更新すること<small>（としておきます）</small>
+              - システム
+                - VM上で協調動作する疎に結合したアプリケーション群
+                - Erlang/OTP用語的にはリリースに近い
+              - アプリケーション <small>(Erlang/OTP用語)</small>
+                - モジュール群およびプロセス群をまとめたもの
+                - 参照: [OTP Design Principles](http://www.erlang.org/doc/design_principles/des_princ.html)
+            - Erlang/OTPではホットデプロイが簡単
+              - 難しいこと（現実的な運用）を考えないなら
+
+            ---
+
+            ホットコードスワップ
+            --------------------
+
+            - 単体モジュールのホットコードスワップは言語レベルでサポート
+              ```erlang
+              %% Erlangシェルにアタッチして以下の関数を実行するだけでOK
+              %% ※ コンパイル済みのbeamファイルがコードパス上に配置されていることが前提
+
+              > l(ModuleName). % = code:load_file(ModuleName).
+              ```
+            - クラスタ内の全ノード(VM)での一斉更新といったことも簡単
+              ```erlang
+              > l(ModuleName). % ローカルノードで最新のコードを読み込む
+              > {_, Bin, File} = code:get_object_code(ModuleName).
+              > rpc:multicall(nodes(), code, load_binary, [ModuleName, File, Bin]). % 全ノードに配布
+              ```
+            - 開発時であれば[reloader](https://github.com/mykook/reloader)も便利
+
+            ---
+
+            Release Handling
+            -----------------
+
+            - システム全体の更新を行おうとすると話はもっと複雑になる
+              - モジュールやアプリケーションのバージョン管理
+              - アプリケーション単位での追加（および削除）
+              - 更新の依存関係の管理
+                - モジュールAを更新してからモジュールBを更新したい
+              - システムをパッケージングする方法等は別途必要
+              - `gen_server:code_change/3`で更新をフックしたい
+              - etc
+            - [release_handling](http://www.erlang.org/doc/design_principles/release_handling.html)というErlang/OTPが提供する仕組みを使う
+              - システム全体の構成の指定や更新方法の指定が行える
+              - 詳細は公式ページや『すごいE本』の21章および22章を参照
+
+            ---
+
+            rebarのサポート
+            ---------------
+
+            - [rebar](https://github.com/rebar/rebar)にはリリースサポート機能が入っている
+              - release_handling周りの煩雑な設定ファイルの自動生成
+              - システムのパッケージングや更新
+              - 参照(rebar wiki): [Release Handling](https://github.com/rebar/rebar/wiki/Release-handling), [Upgrades](https://github.com/rebar/rebar/wiki/Upgrades)
+
+<br />
+
+            - デプロイ時用パッケージの作成や更新方法のベースはこれ
+            - ただし、デフォルトのままだと運用上問題のある箇所があった
+              - 後述するようにいくつか手を入れている
+
+            ---
+
+            rebarでのリリース手順
+            ---------------------
+
+            ```bash
+            ## メインとなるアプリケーションを作成
+            $ mkdir APP_NAME; cd APP_NAME
+            $ rebar create-app appid=APP_NAME # 'create-app'コマンド
+            $ vim rebar.config src/*  # 各種ファイルを適切に編集
+
+            ## リリースパッケージの作成準備
+            $ mkdir rel; cd rel
+            $ rebar create-node nodeid=APP_NAME  # 'create-node'コマンド
+            $ cd ..
+            $ vim rebar.config rel/reltool.config  # 各種設定ファイルを適切に編集
+
+            ## 初回用パッケージを作成
+            $ rebar compile generate  # 'generate'コマンド
+            $ ls -l rel/APP_NAME/bin
+            APP_NAME APP_NAME.cmd install_upgrade.escript start_erl.cmd
+            ```
+
+            ---
+
+            rebarでのリリース手順(続き)
+            ---------------------
+
+            ```bash
+            ## 起動
+            $ mv rel/APP_NAME rel/APP_NAME_v1  # 更新用に名前を変更しておく
+            $ rel/APP_NAME_v1/bin/APP_NAME start
+            $ rel/APP_NAME_v1/bin/APP_NAME ping
+            pong
+            $ rel/APP_NAME_v1/bin/APP_NAME attach  # 起動中のシェル(VM)にアタッチできる
+            > Ctrl-D # 抜ける
+
+            ## 更新用パッケージを作成
+            $ vim src/*.erl  # 適当なファイルを更新
+            $ vim src/APP_NAME.app.src # 記載バージョンを更新
+            $ vim rel/reltool.config   # こっちの記載バージョンも更新
+            $ rebar compile generate # 最新のパッケージを生成
+            $ rebar generate-appups previous_release=APP_NAME_v1  # 差分情報生成
+            $ rebar generate-upgrade previous_release=APP_NAME_v1 # 更新用パッケージ生成
+
+            ```
+
+            ---
+
+            rebarでのリリース手順(続き)
+            ---------------------
+
+            ```bash
+            ## 更新
+            $ mv rel/APP_NAME_v2.tar.gz rel/APP_NAME_v1/releases/  # 更新パッケージを配置する
+            $ rel/APP_NAME_v1/bin/APP_NAME upgrade APP_NAME_v2  # 更新
+            ```
+
+            <small>※ あくまでイメージを掴んでもらうためのもので、実際には正常に動きません</small>
+            <small>※ 運用開始時にはver2.0.1のrebarを使用（現在はver2.5.1）</small>
+
+            ---
+
+            ホットデプロイはこわい
+            ----------------------
+
+            - Erlang/OTPが提供する仕組みやrebarのサポートがある
+              - ホットデプロイは簡単・安全？
+            - こわいです
+              - 更新時にデータが壊れたり不整合が生じないか？
+              - クラスタ内のノード間で生じる（一時的な）バージョン齟齬はどうする？
+              - 更新時に（意図せぬ要因で）VMがダウンしたらどうする？
+              - 更新時にrelease_handlingが具体的に何をするのかが分かりにくい
+              - ホットデプロイ周りの情報やツールが不足している感
+            - 更新毎にVMを再起動する方が格段に安心感がある
+
+            ---
+
+            なぜホットデプロイ？
+            -------------------
+
+            - ストリーム配信システムの性質上重要
+              - 更新によってユーザの視聴が途切れることがない
+            - ホットデプロイならDBレスが達成できる！
+              - 設計の自由度が大幅に向上
+              - いわゆるバッチ処理やポーリング系の処理がほぼ不要に
+              - ミドルウェアとの通信層が存在しない
+              - <small>ただし弊害としてVMがダウンすると、そのノードが保持する情報は消える...</small>
+            - 他の言語に対する差別化としては大きな要因の一つ
+              - <small>(安定した)</small>ホットデプロイにこだわらないならErlang以外の言語を採用していた可能性も十分にあった
+
+            ---
+
+            3. 実際のデプロイの流れ
+            -----------------------
+
+            ---
+
+            大まかな流れ
+            ------------
+
+            <br />
+
+            - アップグレード
+              1. デプロイ用のパッケージを作成
+              2. デプロイツールを使って全ノードにパッケージを配布
+                - デプロイツールには一般的なもの(ex. fabric)を使用
+              3. デプロイツールを使って各ノードで個別にホットデプロイ
+                - クラスタ内のノード同士の更新の同期等は取っていない
+            - ダウングレード
+              - アップグレードとして実施する
+              - 複雑すぎるようなら、ホットデプロイは諦める
+
+            ---
+
+            パッケージ作成
+            --------------
+
+            - システム作成時の準備
+              1. rebarの`create-node`コマンドを使ってリリース用のファイル群を作成
+              2. rebarの[wiki](https://github.com/rebar/rebar/wiki/Release-handling)に従って`reltool.config`ファイルを修正する
+              3. それだけだと上手く動かないのでゴニョゴニョと手を入れる<small>（詳細後述）</small>
+
+            - デプロイ時のパッケージ作成
+              1. システム全体を事前にビルド<small>(コンパイル)</small>しておく
+              2. ビルド物一式をRPMパッケージとしてラップ
+
+            ---
+
+            デプロイ
+            --------
+
+            - 対象ノードでは`rpm`コマンドを実行してパッケージをインストール
+            - rpmインストール中には、以下のrebarコマンドが実行される
+              ```bash
+              ## 各コマンドの詳細は「rebarでのリリース手順」やrebarのwikiを参照
+              $ rebar generate
+              $ rebar generate-appups ...
+              $ rebar generate-upgrade ...
+              $ ${DEPLOY_DIR}/bin/${APP_NAME} upgrade ...  # 更新!
+              ```
+            - これでホットデプロイは完了
+              - 対象ノードで実行している理由等は後述
+
+            ---
+
+            4. 各種問題とそれへの対処
+            -------------------------
+
+            ---
+
+            rebar関連の問題
+            ---------------
+
+            - 便利だけど痒いところに手が届かなかった
+            - ノード名やCookieを実行時に<small>(設定ファイルから読み取って)</small>決定したい
+              - `net_kenerl:start/1`を使って起動後に分散ノード化するように修正
+            - `generate`や`generate-appup`等をデプロイ先で実行する必要がある
+              - 一部にビルド環境のパスが埋め込まれていた
+              - 新旧のバージョンが分からないと更新用パッケージが生成できない
+            - バージョンやパスの調整が面倒
+              - `*.app`ファイルや`reltool.config`のバージョン指定に齟齬があると上手く行かない
+              - 各種ファイルの配置を間違えると失敗する
+              - ラッパースクリプトを書いて自動化
+            - その他細々としたバグ<small>(?)</small>修正
+
+            ---
+
+            Erlang/OTP関連の問題
+            --------------------
+
+            - release_handlingの挙動が分かりにくい
+              - 更新時の挙動を簡単に確認する方法もない<small>(おそらく)</small>
+            - OTP監視ツリーを適切に構成することが重要
+              - ツリーに存在しないプロセスの`gen_server:code_change/3`は更新時に呼ばれない<small>(おそらく)</small>
+              - 独自supervisorモジュールを実装する場合に備えるべき機能が不明
+                - ex. `supervisor:which_children/1`がないと更新に失敗する
+                - 最終的にはコードを追うしかない
+            - その他落とし穴
+                - ローカルな関数に対する参照を長期間生存するプロセスに渡してしまう
+                  - コードスワップの仕様により、二回更新を行うと保持プロセスごとkillされる
+
+            ---
+
+            ### ホットデプロイ自体に起因する問題
+
+            - Erlang/OTPに限らない話
+              - ex. レコードにフィールドを追加したい場合
+              - ある意味、一番悩ましい
+
+            - 整合性をどう維持するか
+              - 新旧バージョンでの整合性
+              - 更新中のノード同士での整合性
+
+            - 意外にErlang/OTP自体のサポート<small>(or 定石的なノウハウ)</small>は少なかった
+              - プロセスステートであれば`gen_server:code_change/3`が利用可能
+              - プロセスに紐付かないようなデータ構造はどうするか？
+
+            ---
+
+            レコードの場合(1)
+            ----------------
+
+            - Erlangのレコードの内部はタプル
+              - 要素の追加や削除を行うと、古いレコードの形式を期待している全ての箇所でエラーが発生
+
+            - オプション用や変更が多いと分かっているデータの場合
+              - 変更に強い連想リストやマップを使用を検討
+            - レコードを使用する場合にも、基本的にモジュールにラップする<small>(OOP的に)</small>
+              - 次項参照
+            - 規格化されているデータに対応するレコード等は、そのまま使用してもOK
+
+            ---
+
+            レコードの場合(2)
+            -----------------
+
+              ```erlang
+              -module(some_data).
+              -export([make/1, get_id/1]).
+              -export_type([data/0]).
+
+              -record(some, {id :: binary()}).
+
+              -opaque data() :: #some{}.
+
+              -spec make(binary()) -> data().
+              make(Id) -> #some{id = Id}.
+
+              -spec get_id(data()) -> binary().
+              get_id(#some{id = Id}) -> Id;
+              get_id(Data) -> get_id(update(Data)).  % 必要なら更新用の節が追加できる仕組み
+              ```
+
+            ---
+
+            レコードの場合(2)(続き)
+            -----------------
+
+            ```erlang
+            %% レコード自動更新マクロ例
+            -define(UPDATE(RecordName, MaybeOld),
+            case MaybeOld of
+              #RecordName{} -> MaybeOld; % up-to-date
+              _             ->
+                %% for hot-code-swap
+                assoc_list_to_record(
+                  RecordName,
+                  record_info(fields, RecordName),
+                  lists:zip(
+                    record_info(fields, RecordName),
+                    tl(tuple_to_list(MaybeOld)) ++
+                    lists:nthtail(tuple_size(MaybeOld) - 1,
+                    tl(tuple_to_list(#RecordName{})))) % default
+                )
+            end).
+            ```
+
+            ---
+
+            その他
+            ------
+
+            - レコードの追加ではなく、プラグイン的な機構を
+
+            - ノード間での通信仕様はめったに変えない
+              - 変える場合は、事前に互換バージョンの更新を行う
+
+            - 汎用的なモジュールとアプリケーション固有のモジュールで方針を分ける
+             - 前者は設計をかなりしっかり
+
+            - 最終的には`let it crash`の精神で全体を設計しておけばOK
+            - worker系とsupervisor系の分離
+              - supervisro系には複雑な処理はさせない
+
+            ---
+
+            5. まとめ
+            ---------
+
+            ---
+
+            まとめ
+            ------
+
+            - Erlang/OTPの長期稼働や動的コード更新の仕組み自体は安定している印象
+               - OTPが期待するお作法に従うのが大変
+               - ツール周りの情報も少なく、ある程度安定した方法を確立するのも一苦労
+            - その壁を超えれば、経験的には、長期運用に十分耐え得る印象
+            - ただし、まだまだホットデプロイは恐い
+               - プログラマが常にコード更新のことを頭の片隅に置く必要がある
+               - まだまだ試行錯誤中なので、上手くやっているよ、という人がいれば教えてください！
+
+            ---
+
+            最後に
+            ------
+
+            <br />
+
+            ドワンゴではErlang/OTPエンジニアを募集しています
+
+          </script>
+        </section>
+      </div>
+    </div>
+
+    <script src="lib/js/head.min.js"></script>
+    <script src="js/reveal.min.js"></script>
+
+    <script>
+
+      // Full list of configuration options available here:
+      // https://github.com/hakimel/reveal.js#configuration
+      Reveal.initialize({
+      controls: true,
+      progress: true,
+      history: true,
+      center: true,
+
+      theme: Reveal.getQueryHash().theme, // available themes are in /css/theme
+      transition: Reveal.getQueryHash().transition || 'default', // default/cube/page/concave/zoom/linear/fade/none
+
+      // Parallax scrolling
+      // parallaxBackgroundImage: 'https://s3.amazonaws.com/hakim-static/reveal-js/reveal-parallax-1.jpg',
+      // parallaxBackgroundSize: '2100px 900px',
+
+      // Optional libraries used to extend on reveal.js
+      dependencies: [
+      { src: 'lib/js/classList.js', condition: function() { return !document.body.classList; } },
+      { src: 'plugin/markdown/marked.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+      { src: 'plugin/markdown/markdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+      { src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } },
+      { src: 'plugin/zoom-js/zoom.js', async: true, condition: function() { return !!document.body.classList; } },
+      { src: 'plugin/notes/notes.js', async: true, condition: function() { return !!document.body.classList; } }
+      ]
+      });
+
+    </script>
+
+  </body>
+</html>
