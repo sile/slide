@@ -182,14 +182,7 @@
             $ rebar compile generate  # 'generate'コマンド
             $ ls -l rel/APP_NAME/bin
             APP_NAME APP_NAME.cmd install_upgrade.escript start_erl.cmd
-            ```
 
-            ---
-
-            rebarでのリリース手順(続き)
-            ---------------------
-
-            ```bash
             ## 起動
             $ mv rel/APP_NAME rel/APP_NAME_v1  # 更新用に名前を変更しておく
             $ rel/APP_NAME_v1/bin/APP_NAME start
@@ -206,14 +199,6 @@
             $ rebar generate-appups previous_release=APP_NAME_v1  # 差分情報生成
             $ rebar generate-upgrade previous_release=APP_NAME_v1 # 更新用パッケージ生成
 
-            ```
-
-            ---
-
-            rebarでのリリース手順(続き)
-            ---------------------
-
-            ```bash
             ## 更新
             $ mv rel/APP_NAME_v2.tar.gz rel/APP_NAME_v1/releases/  # 更新パッケージを配置する
             $ rel/APP_NAME_v1/bin/APP_NAME upgrade APP_NAME_v2  # 更新
@@ -403,20 +388,20 @@
             ```erlang
             %% レコード自動更新マクロ例
             -define(UPDATE(RecordName, MaybeOld),
-            case MaybeOld of
-              #RecordName{} -> MaybeOld; % up-to-date
-              _             ->
-                %% for hot-code-swap
-                assoc_list_to_record(
-                  RecordName,
-                  record_info(fields, RecordName),
-                  lists:zip(
+              case MaybeOld of
+                #RecordName{} -> MaybeOld; % up-to-date
+                _ ->
+                  %% for hot-code-swap
+                  assoc_list_to_record(
+                    RecordName,
                     record_info(fields, RecordName),
-                    tl(tuple_to_list(MaybeOld)) ++
-                    lists:nthtail(tuple_size(MaybeOld) - 1,
-                    tl(tuple_to_list(#RecordName{})))) % default
-                )
-            end).
+                    lists:zip(
+                      record_info(fields, RecordName),
+                      tl(tuple_to_list(MaybeOld)) ++
+                      lists:nthtail(tuple_size(MaybeOld) - 1,
+                      tl(tuple_to_list(#RecordName{})))) % default
+                  )
+              end).
             ```
 
             ---

@@ -74,7 +74,7 @@
             ### システムの担当範囲
 
             ![system](tech-system.png)
-            
+
             ---
 
             ### システムの構成
@@ -96,7 +96,7 @@
             ## 2. Erlangをどのようにつかっているか
 
             ---
-            
+
             ### バージョン
 
             - R16B03-2を使用
@@ -140,11 +140,11 @@
                 - クラスタリソース管理サーバ
                 - etc
               - PHP版に比べシステム全体のコード量は半分くらいに減少
-            
+
             ---
 
             ## 3. なぜErlangにしたのか
-            
+
             ---
 
             ### PHP版の問題点は？
@@ -153,7 +153,7 @@
             - 性能が伸びない
               - 単体性能
               - スケールアウト
-            
+
             ---
 
             ### PHP版は複雑？(1) - HLS配信部分の図
@@ -183,14 +183,14 @@
                 - 関連コンポーネントやリソースの削除や異常終了の確実な検出
               - 単純だが、これらの要素が実用レベルで(かつ簡単に)使用可能な言語/環境は意外と少ない印象
                 - 独立したサーバ(プロセス)同士を、ほぼ自由に組み合わせられるようになる
-            
+
             ---
 
             ### Erlangなら？(2) - HLS配信部分の図
 
             ![hls-erlang](tech3-hls-erlang.png)
 
-            Redis,ファイルシステム,Cron,削除サーバが不要となった  
+            Redis,ファイルシステム,Cron,削除サーバが不要となった
             HLS関連データおよび処理は単一プロセスに局所化
 
             ---
@@ -205,12 +205,7 @@
             start_link(HlsViewData) ->
               %% HLSサーバ起動
               spawn_link(fun ?MODULE:init/1, [HlsViewData]).
-            ```
 
-            ---
-
-            ### HLSプロセスコード(続き)
-            ```erlang
             init(HlsViewData) ->
               %% プロセス初期化関数
 
@@ -223,12 +218,7 @@
                 {ok, BackendPid} ->
                   loop({BackendPid, queue:new(), HlsViewData})
               end.
-            ```
-            
-            ---
 
-            ### HLSプロセスコード(続き)
-            ```erlang
             loop({BackendPid, HlsBuffer, HlsViewData}) ->
               receive
                 {rtmp_data, RtmpData} ->
@@ -241,12 +231,6 @@
                       false -> HlsBuffer2
                     end,
                   loop({BackendPid, HlsBuffer3, HlsViewData});
-            ```
-
-            ---
-
-            ### HLSプロセスコード(続き)
-            ```erlang
                 expired ->
                   %% 有効期限が切れた
                   ok = stop_transcode(BackendPid),  % バックエンド停止
@@ -313,7 +297,7 @@
             - 現時点では(いろいろと苦労しつつも)おおむね満足
 
             ---
-            
+
             ## ご清聴ありがとうございました
 
           </script>
