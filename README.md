@@ -5,4 +5,4 @@
 -------------
 
 - 第三回: [なぜErlangにしたのか](http://sile.github.io/slide/kbkz_tech_03/)
-- 第五回: [ドワンゴでのほっとデプロイ事例](http://sile.github.io/slide/kbkz_tech_05/)
+- 第五回: [ドワンゴでのホットデプロイ事例](http://sile.github.io/slide/kbkz_tech_05/)
